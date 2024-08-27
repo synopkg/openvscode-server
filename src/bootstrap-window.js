@@ -11,6 +11,7 @@
 /**
  * @import { ISandboxConfiguration } from './vs/base/parts/sandbox/common/sandboxTypes'
  * @typedef {any} LoaderConfig
+ * ESM enabled
  */
 
 /* eslint-disable no-restricted-globals */
