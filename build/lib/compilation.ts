@@ -14,13 +14,16 @@ import * as util from './util';
 import * as fancyLog from 'fancy-log';
 import * as ansiColors from 'ansi-colors';
 import * as os from 'os';
-import ts = require('typescript');
 import * as File from 'vinyl';
 import * as task from './task';
 import { Mangler } from './mangle/index';
 import { RawSourceMap } from 'source-map';
 import { gulpPostcss } from './postcss';
+import ts = require('typescript');
 const watch = require('./watch');
+const packageJson = require('../../package.json');
+const productJson = require('../../product.json');
+const replace = require('gulp-replace');
 
 
 // --- gulp-tsb: compile and transpile --------------------------------
@@ -45,7 +48,7 @@ function getTypeScriptCompilerOptions(src: string): ts.CompilerOptions {
 interface ICompileTaskOptions {
 	readonly build: boolean;
 	readonly emitError: boolean;
-	readonly transpileOnly: boolean | { swc: boolean };
+	readonly transpileOnly: boolean | { esbuild: boolean };
 	readonly preserveEnglish: boolean;
 }
 
@@ -63,7 +66,7 @@ function createCompile(src: string, { build, emitError, transpileOnly, preserveE
 	const compilation = tsb.create(projectPath, overrideOptions, {
 		verbose: false,
 		transpileOnly: Boolean(transpileOnly),
-		transpileWithSwc: typeof transpileOnly !== 'boolean' && transpileOnly.swc
+		transpileWithSwc: typeof transpileOnly !== 'boolean' && transpileOnly.esbuild
 	}, err => reporter(err));
 
 	function pipeline(token?: util.ICancellationToken) {
@@ -77,8 +80,20 @@ function createCompile(src: string, { build, emitError, transpileOnly, preserveE
 
 		const postcssNesting = require('postcss-nesting');
 
+		const productJsFilter = util.filter(data => !build && data.path.endsWith('vs/platform/product/common/product.ts'));
+		const productConfiguration = JSON.stringify({
+			...productJson,
+			version: `${packageJson.version}-dev`,
+			nameShort: `${productJson.nameShort} Dev`,
+			nameLong: `${productJson.nameLong} Dev`,
+			dataFolderName: `${productJson.dataFolderName}-dev`
+		});
+
 		const input = es.through();
 		const output = input
+			.pipe(productJsFilter)
+			.pipe(replace(/{\s*\/\*BUILD->INSERT_PRODUCT_CONFIGURATION\*\/\s*}/, productConfiguration, { skipBinary: true }))
+			.pipe(productJsFilter.restore)
 			.pipe(util.$if(isUtf8Test, bom())) // this is required to preserve BOM in test files that loose it otherwise
 			.pipe(util.$if(!build && isRuntimeJs, util.appendOwnPathSourceURL()))
 			.pipe(util.$if(isCSS, gulpPostcss([postcssNesting()], err => reporter(String(err)))))
@@ -105,11 +120,11 @@ function createCompile(src: string, { build, emitError, transpileOnly, preserveE
 	return pipeline;
 }
 
-export function transpileTask(src: string, out: string, swc: boolean): task.StreamTask {
+export function transpileTask(src: string, out: string, esbuild: boolean): task.StreamTask {
 
 	const task = () => {
 
-		const transpile = createCompile(src, { build: false, emitError: true, transpileOnly: { swc }, preserveEnglish: false });
+		const transpile = createCompile(src, { build: false, emitError: true, transpileOnly: { esbuild }, preserveEnglish: false });
 		const srcPipe = gulp.src(`${src}/**`, { base: `${src}` });
 
 		return srcPipe
